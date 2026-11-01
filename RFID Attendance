@@ -1,0 +1,221 @@
+#include <SPI.h>
+#include <MFRC522.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <WiFi.h>
+#include <HTTPClient.h>
+
+// Pin definitions for ESP32
+#define SS_PIN 5
+#define RST_PIN 27
+#define BUZZER_PIN 25
+
+MFRC522 rfid(SS_PIN, RST_PIN);
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+// Student structure
+struct Student {
+  byte uid[4];
+  const char* name;
+  const char* section;
+  bool present;
+};
+
+// Student list
+Student students[] = {
+  {{0x43, 0x7B, 0x02, 0x29}, "Lakshmi", "ECE", false},
+  {{0x43, 0x79, 0xDF, 0x13}, "Afia", "ECE", false}
+};
+
+const int studentCount = sizeof(students) / sizeof(Student);
+
+String inputCommand = "";
+
+const char* ssid = "JOHN K PAUL";
+const char* password = "john7373";
+
+String GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbz9N4iPl1R3phUIdiDdYv6e9CGkZ3mVjpVWe3c6tlpxfqq8S3Y0hMRAEFln6FLurA/exec";
+
+void setup() {
+  Serial.begin(115200);
+
+  SPI.begin();
+  rfid.PCD_Init();
+
+  lcd.init();
+  lcd.backlight();
+
+  pinMode(BUZZER_PIN, OUTPUT);
+
+  showWelcome();
+
+  Serial.println("System ready. Scan RFID card or type 'how many student are present'");
+
+  WiFi.begin(ssid, password);
+  Serial.print("Connecting to WiFi");
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("\nConnected to WiFi");
+}
+
+void loop() {
+  checkRFID();
+  checkSerialInput();
+}
+
+void checkRFID() {
+  if (!rfid.PICC_IsNewCardPresent() || !rfid.PICC_ReadCardSerial()) {
+    return;
+  }
+
+  beepBuzzer();
+
+  bool validCard = false;
+
+  for (int i = 0; i < studentCount; i++) {
+    if (compareUID(rfid.uid.uidByte, students[i].uid)) {
+      validCard = true;
+
+      if (!students[i].present) {
+        students[i].present = true;
+
+        sendToGoogleSheets(
+          students[i].name,
+          students[i].section,
+          "Present"
+        );
+
+        showOnLCD(students[i].name, students[i].section);
+
+        Serial.print("Marked present: ");
+        Serial.println(students[i].name);
+      } 
+      else {
+        showOnLCD(students[i].name, students[i].section);
+
+        Serial.print("Already marked: ");
+        Serial.println(students[i].name);
+      }
+
+      delay(3000);
+      showWelcome();
+      break;
+    }
+  }
+
+  // Invalid card
+  if (!validCard) {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Access Denied");
+    lcd.setCursor(0, 1);
+    lcd.print("Invalid Card");
+
+    Serial.println("Invalid entry");
+
+    delay(3000);
+    showWelcome();
+  }
+
+  rfid.PICC_HaltA();
+}
+
+bool compareUID(byte* a, byte* b) {
+  for (int i = 0; i < 4; i++) {
+    if (a[i] != b[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+void showOnLCD(const char* name, const char* section) {
+  lcd.clear();
+
+  lcd.setCursor(0, 0);
+  lcd.print("Name: ");
+  lcd.print(name);
+
+  lcd.setCursor(0, 1);
+  lcd.print("Class: ");
+  lcd.print(section);
+
+  Serial.println("Status: Present");
+}
+
+void showWelcome() {
+  lcd.clear();
+
+  lcd.setCursor(0, 0);
+  lcd.print("Attendance System");
+
+  lcd.setCursor(0, 1);
+  lcd.print("Scan your card...");
+}
+
+void checkSerialInput() {
+  while (Serial.available()) {
+    char c = Serial.read();
+
+    if (c == '\n') {
+      inputCommand.trim();
+
+      if (inputCommand.equalsIgnoreCase("how many student are present")) {
+        showAttendance();
+      }
+
+      inputCommand = "";
+    } 
+    else {
+      inputCommand += c;
+    }
+  }
+}
+
+void showAttendance() {
+  Serial.println("---- Attendance Report ----");
+
+  for (int i = 0; i < studentCount; i++) {
+    Serial.print(students[i].name);
+    Serial.print(" - ");
+
+    Serial.println(
+      students[i].present ? "Present" : "Absent"
+    );
+  }
+
+  Serial.println("---------------------------");
+}
+
+void beepBuzzer() {
+  digitalWrite(BUZZER_PIN, HIGH);
+  delay(200);
+  digitalWrite(BUZZER_PIN, LOW);
+}
+
+void sendToGoogleSheets(String name, String section, String status) {
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+
+    String url = GOOGLE_SCRIPT_URL +
+                 "?name=" + name +
+                 "&section=" + section +
+                 "&status=" + status;
+
+    http.begin(url);
+
+    int httpResponseCode = http.GET();
+
+    Serial.print("Data sent, response: ");
+    Serial.println(httpResponseCode);
+
+    http.end();
+  } 
+  else {
+    Serial.println("WiFi not connected");
+  }
+}
