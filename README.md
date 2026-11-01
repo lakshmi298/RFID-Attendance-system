@@ -76,8 +76,18 @@ The system uses RFID cards to identify students, displays their attendance statu
 - Student database management.
 - Web-based attendance monitoring.
 
-## Developed By
 
+## Developed By
 Lakshmi Geeth Krishnan
+## Project Gallery
+
+### 1. Hardware Setup
+![Hardware Setup](images/1.jpg)
+
+### 2. RFID Attendance System
+![RFID Scanning](images/2.jpg)
+
+### 3. Google Sheets Attendance Output
+![Attendance Output](images/3.jpg)
 
 Electronics and Communication Engineering
